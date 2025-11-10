@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiSearch, FiMapPin, FiClock, FiShield, FiArrowRight } from 'react-icons/fi';
 import { FaShippingFast } from 'react-icons/fa';
+import { getTrackingDetails } from '@/lib/tracking';
 
 // Types
 interface DotPosition {
@@ -64,6 +65,7 @@ export default function HeroSection(): React.ReactNode {
   const [trackingNumber, setTrackingNumber] = useState<string>('');
   const [activeFeature, setActiveFeature] = useState<number>(0);
   const [isTracking, setIsTracking] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
   const router = useRouter();
 
   const features: string[] = [
@@ -88,18 +90,33 @@ export default function HeroSection(): React.ReactNode {
     return () => clearInterval(interval);
   }, [features.length]);
 
-  // Handle tracking form submission
-  const handleTrack = (e: React.FormEvent): void => {
+  // Handle tracking form submission with real API call
+  const handleTrack = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    if (trackingNumber.trim()) {
-      setIsTracking(true);
-      // Simulate API call delay
-      setTimeout(() => {
-        setIsTracking(false);
+    
+    if (!trackingNumber.trim()) {
+      setError('Please enter a tracking number');
+      return;
+    }
+
+    setIsTracking(true);
+    setError('');
+
+    try {
+      // Use our actual getTrackingDetails function
+      const result = await getTrackingDetails(trackingNumber.trim());
+      
+      if (result.error) {
+        setError(result.error);
+      } else if (result.trackingDetails) {
+        // Navigate to tracking page with the tracking number
         router.push(`/tracking?trackingNumber=${encodeURIComponent(trackingNumber)}`);
-      }, 1000);
-    } else {
-      router.push('/tracking');
+      }
+    } catch (err) {
+      setError('Failed to track package. Please try again.');
+      console.error('Tracking error:', err);
+    } finally {
+      setIsTracking(false);
     }
   };
 
@@ -108,15 +125,25 @@ export default function HeroSection(): React.ReactNode {
     router.push('/tracking');
   };
 
+  // Sample tracking numbers for quick testing
+  const handleSampleTrack = (sampleNumber: string): void => {
+    setTrackingNumber(sampleNumber);
+    // Auto-track after setting the number
+    setTimeout(() => {
+      const button = document.getElementById('track-button');
+      button?.click();
+    }, 100);
+  };
+
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-linear-to-br from-gray-50 to-blue-50">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-blue-50">
       {/* Animated Background Elements */}
       <div className="absolute inset-0">
         <MovingDots />
 
-        {/* linear Orbs */}
+        {/* Gradient Orbs */}
         <motion.div
-          className="absolute top-1/4 -left-10 w-72 h-72 bg-linear-to-r from-fedex-purple/20 to-fedex-blue/20 rounded-full blur-3xl"
+          className="absolute top-1/4 -left-10 w-72 h-72 bg-gradient-to-r from-fedex-purple/20 to-fedex-blue/20 rounded-full blur-3xl"
           animate={{
             scale: [1, 1.2, 1],
             opacity: [0.3, 0.5, 0.3],
@@ -124,7 +151,7 @@ export default function HeroSection(): React.ReactNode {
           transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
         />
         <motion.div
-          className="absolute bottom-1/4 -right-10 w-96 h-96 bg-linear-to-r from-fedex-orange/10 to-fedex-purple/10 rounded-full blur-3xl"
+          className="absolute bottom-1/4 -right-10 w-96 h-96 bg-gradient-to-r from-fedex-orange/10 to-fedex-purple/10 rounded-full blur-3xl"
           animate={{
             scale: [1.2, 1, 1.2],
             opacity: [0.4, 0.2, 0.4],
@@ -169,7 +196,7 @@ export default function HeroSection(): React.ReactNode {
               <AnimatePresence mode="wait">
                 <motion.span
                   key={activeFeature}
-                  className="text-fedex-orange bg-linear-to-r from-fedex-orange to-fedex-purple bg-clip-text text-transparent"
+                  className="text-fedex-orange bg-gradient-to-r from-fedex-orange to-fedex-purple bg-clip-text text-transparent"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
@@ -194,7 +221,7 @@ export default function HeroSection(): React.ReactNode {
 
           {/* Tracking Form */}
           <motion.div
-            className="bg-white rounded-2xl shadow-xl p-1 mb-8 border border-gray-200 max-w-2xl"
+            className="bg-white rounded-2xl shadow-xl p-1 mb-4 border border-gray-200 max-w-2xl"
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
@@ -206,12 +233,13 @@ export default function HeroSection(): React.ReactNode {
                   type="text"
                   value={trackingNumber}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTrackingNumber(e.target.value)}
-                  placeholder="Enter tracking number (e.g., 1234 5678 9012)"
+                  placeholder="Enter tracking number (e.g., FDX123456789)"
                   className="w-full pl-12 pr-4 py-4 text-lg border-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-fedex-purple/20 bg-gray-50 placeholder-gray-400"
                   aria-label="Tracking number"
                 />
               </div>
               <motion.button
+                id="track-button"
                 type="submit"
                 disabled={isTracking}
                 className={`px-8 py-4 rounded-xl font-semibold text-lg flex items-center justify-center space-x-2 min-w-[140px] transition-all ${
@@ -242,12 +270,48 @@ export default function HeroSection(): React.ReactNode {
             </form>
           </motion.div>
 
+          {/* Quick Sample Numbers */}
+          <motion.div
+            className="mb-4"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+          >
+            <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
+              <span className="text-sm text-gray-500">Try sample:</span>
+              {['FDX123456789', 'FDX987654321'].map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => handleSampleTrack(sample)}
+                  className="text-sm text-fedex-purple hover:text-fedex-blue font-medium underline"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Error Message */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl"
+              >
+                <span className="text-red-700 text-sm font-medium">{error}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Alternative Tracking Option */}
           <motion.div
             className="flex flex-col sm:flex-row gap-4 items-center mb-8"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
+            transition={{ delay: 0.7 }}
           >
             <span className="text-gray-600">Or</span>
             <motion.button
@@ -267,7 +331,7 @@ export default function HeroSection(): React.ReactNode {
             className="grid grid-cols-3 gap-6 max-w-2xl"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.7 }}
+            transition={{ delay: 0.8 }}
           >
             {stats.map((stat, index) => (
               <motion.div
@@ -275,7 +339,7 @@ export default function HeroSection(): React.ReactNode {
                 className="text-center lg:text-left"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 + index * 0.1 }}
+                transition={{ delay: 0.9 + index * 0.1 }}
               >
                 <div className="flex items-center justify-center lg:justify-start space-x-2 mb-2">
                   <stat.icon className="w-5 h-5 text-fedex-orange" aria-hidden="true" />
@@ -334,20 +398,10 @@ export default function HeroSection(): React.ReactNode {
             </motion.div>
 
             {/* Professional Hero Image */}
-            <div className="relative rounded-3xl overflow-hidden shadow-2xl bg-linear-to-br from-fedex-purple to-fedex-blue">
+            <div className="relative rounded-3xl overflow-hidden shadow-2xl bg-gradient-to-br from-fedex-purple to-fedex-blue">
               <div className="aspect-square relative w-full">
-                <Image
-                  src="/fedex.jpeg" // Replace with your actual image path
-                  alt="FedEx Global Delivery - Professional shipping services worldwide"
-                  fill
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 40vw"
-                  className="object-cover"
-                  priority
-                  placeholder="blur"
-                  blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R"
-                />
-                {/* Overlay with content */}
-                <div className="absolute inset-0 bg-linear-to-br from-fedex-purple/80 to-fedex-blue/80 flex items-center justify-center">
+                {/* You can replace this with your actual image */}
+                <div className="absolute inset-0 bg-gradient-to-br from-fedex-purple/90 to-fedex-blue/90 flex items-center justify-center">
                   <div className="text-center text-white p-8">
                     <motion.div
                       initial={{ scale: 0 }}
@@ -361,6 +415,18 @@ export default function HeroSection(): React.ReactNode {
                     <p className="text-white/80">Your trusted shipping partner worldwide</p>
                   </div>
                 </div>
+                
+                {/* Uncomment and use this when you have your actual image */}
+                {/*
+                <Image
+                  src="/fedex-delivery-hero.jpg"
+                  alt="FedEx Global Delivery - Professional shipping services worldwide"
+                  fill
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 40vw"
+                  className="object-cover"
+                  priority
+                />
+                */}
               </div>
             </div>
           </div>
