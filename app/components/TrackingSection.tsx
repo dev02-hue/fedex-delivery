@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // components/Tracking/TrackingSection.tsx
 'use client';
-import { useState  } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FiSearch, 
@@ -13,124 +13,12 @@ import {
   FiCopy,
   FiShare2,
   FiDownload,
-   
+  FiEdit
 } from 'react-icons/fi';
+import { getTrackingDetails } from '@/lib/tracking';
 
-// Mock tracking data - in real app, this would come from API
-const mockTrackingData = {
-  '123456789012': {
-    status: 'in_transit',
-    trackingNumber: '123456789012',
-    service: 'FedEx Express',
-    estimatedDelivery: '2024-12-25T10:00:00',
-    recipient: 'John Doe',
-    destination: 'New York, NY 10001',
-    weight: '2.5 lbs',
-    dimensions: '12 × 8 × 4 in',
-    timeline: [
-      {
-        id: 1,
-        status: 'delivered',
-        description: 'Delivered',
-        location: 'New York, NY',
-        timestamp: '2024-12-25T10:00:00',
-        completed: true
-      },
-      {
-        id: 2,
-        status: 'out_for_delivery',
-        description: 'Out for delivery',
-        location: 'New York, NY',
-        timestamp: '2024-12-25T08:30:00',
-        completed: true
-      },
-      {
-        id: 3,
-        status: 'arrived_at_facility',
-        description: 'Arrived at delivery facility',
-        location: 'New York, NY',
-        timestamp: '2024-12-25T06:15:00',
-        completed: true
-      },
-      {
-        id: 4,
-        status: 'in_transit',
-        description: 'In transit',
-        location: 'Memphis, TN',
-        timestamp: '2024-12-24T22:45:00',
-        completed: true
-      },
-      {
-        id: 5,
-        status: 'departed_facility',
-        description: 'Departed facility',
-        location: 'Memphis, TN',
-        timestamp: '2024-12-24T20:30:00',
-        completed: true
-      },
-      {
-        id: 6,
-        status: 'arrived_at_facility',
-        description: 'Arrived at sort facility',
-        location: 'Memphis, TN',
-        timestamp: '2024-12-24T18:15:00',
-        completed: true
-      },
-      {
-        id: 7,
-        status: 'picked_up',
-        description: 'Picked up',
-        location: 'Los Angeles, CA',
-        timestamp: '2024-12-24T14:00:00',
-        completed: true
-      }
-    ]
-  },
-  '987654321098': {
-    status: 'out_for_delivery',
-    trackingNumber: '987654321098',
-    service: 'FedEx Ground',
-    estimatedDelivery: '2024-12-25T14:00:00',
-    recipient: 'Sarah Johnson',
-    destination: 'Chicago, IL 60601',
-    weight: '5.2 lbs',
-    dimensions: '16 × 12 × 6 in',
-    timeline: [
-      {
-        id: 1,
-        status: 'out_for_delivery',
-        description: 'Out for delivery',
-        location: 'Chicago, IL',
-        timestamp: '2024-12-25T08:00:00',
-        completed: true
-      },
-      {
-        id: 2,
-        status: 'arrived_at_facility',
-        description: 'Arrived at delivery facility',
-        location: 'Chicago, IL',
-        timestamp: '2024-12-25T05:30:00',
-        completed: true
-      },
-      {
-        id: 3,
-        status: 'in_transit',
-        description: 'In transit',
-        location: 'Indianapolis, IN',
-        timestamp: '2024-12-24T23:15:00',
-        completed: true
-      },
-      {
-        id: 4,
-        status: 'picked_up',
-        description: 'Picked up',
-        location: 'Detroit, MI',
-        timestamp: '2024-12-24T16:45:00',
-        completed: true
-      }
-    ]
-  }
-};
+// Fix CSS class
+const fixedGradient = 'bg-gradient-to-br';
 
 export default function TrackingSection() {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -141,7 +29,7 @@ export default function TrackingSection() {
   const [activeTab, setActiveTab] = useState('details');
 
   // Sample tracking numbers for quick testing
-  const sampleNumbers = ['123456789012', '987654321098'];
+  const sampleNumbers = ['FDX123456789', 'FDX987654321'];
 
   const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,16 +41,48 @@ export default function TrackingSection() {
     setIsLoading(true);
     setError('');
     
-    // Simulate API call
-    setTimeout(() => {
-      const data = mockTrackingData[trackingNumber as keyof typeof mockTrackingData];
-      if (data) {
-        setTrackingData(data);
-      } else {
-        setError('Tracking number not found. Please check and try again.');
+    try {
+      const result = await getTrackingDetails(trackingNumber);
+      
+      if (result.error) {
+        setError(result.error);
+      } else if (result.trackingDetails) {
+        // Transform the data to match our component structure
+        const transformedData = transformTrackingData(result.trackingDetails);
+        setTrackingData(transformedData);
       }
+    } catch (err) {
+      setError('Failed to fetch tracking information');
+      console.error('Tracking error:', err);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
+  };
+
+  // Transform database data to component format
+  const transformTrackingData = (trackingDetails: any) => {
+    const { package: pkg, events } = trackingDetails;
+    
+    return {
+      status: pkg.status,
+      trackingNumber: pkg.tracking_number,
+      service: pkg.service_type,
+      estimatedDelivery: pkg.estimated_delivery,
+      recipient: pkg.recipient_name,
+      destination: pkg.recipient_address,
+      sender: pkg.sender_name,
+      senderAddress: pkg.sender_address,
+      weight: pkg.weight,
+      dimensions: pkg.dimensions,
+      timeline: events.map((event: any ) => ({
+        id: event.id,
+        status: event.status,
+        description: event.description,
+        location: event.location,
+        timestamp: event.event_timestamp,
+        completed: new Date(event.event_timestamp) < new Date()
+      })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    };
   };
 
   const handleSampleTrack = (sampleNumber: string) => {
@@ -175,9 +95,11 @@ export default function TrackingSection() {
   };
 
   const copyTrackingNumber = () => {
-    navigator.clipboard.writeText(trackingData.trackingNumber);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (trackingData) {
+      navigator.clipboard.writeText(trackingData.trackingNumber);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -186,6 +108,7 @@ export default function TrackingSection() {
       case 'out_for_delivery': return 'text-orange-600 bg-orange-100';
       case 'in_transit': return 'text-blue-600 bg-blue-100';
       case 'picked_up': return 'text-purple-600 bg-purple-100';
+      case 'exception': return 'text-red-600 bg-red-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
@@ -196,22 +119,39 @@ export default function TrackingSection() {
       case 'out_for_delivery': return FiTruck;
       case 'in_transit': return FiTruck;
       case 'picked_up': return FiMapPin;
+      case 'exception': return FiAlertCircle;
       default: return FiClock;
     }
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Date not available';
+    }
+  };
+
+  const formatTime = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch {
+      return 'Time not available';
+    }
   };
 
   return (
-    <section id="tracking" className="py-20 bg-linear-to-br from-gray-50 to-blue-50 relative overflow-hidden">
+    <section id="tracking" className={`py-20 ${fixedGradient} from-gray-50 to-blue-50 relative overflow-hidden`}>
       {/* Background Elements */}
       <div className="absolute inset-0">
         <div className="absolute top-20 right-10 w-80 h-80 bg-fedex-purple/5 rounded-full blur-3xl"></div>
@@ -272,7 +212,7 @@ export default function TrackingSection() {
                   type="text"
                   value={trackingNumber}
                   onChange={(e) => setTrackingNumber(e.target.value)}
-                  placeholder="Enter tracking number (e.g., 123456789012)"
+                  placeholder="Enter tracking number (e.g., FDX123456789)"
                   className="w-full pl-12 pr-4 py-4 text-lg border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-fedex-purple focus:border-transparent bg-gray-50"
                 />
               </div>
@@ -349,7 +289,7 @@ export default function TrackingSection() {
               className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden"
             >
               {/* Header with Tracking Info */}
-              <div className="bg-linear-to-r from-fedex-purple to-fedex-blue p-6 text-white">
+              <div className={`${fixedGradient} from-fedex-purple to-fedex-blue p-6 text-white`}>
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   <div className="flex items-center space-x-4">
                     <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
@@ -381,6 +321,9 @@ export default function TrackingSection() {
                   </div>
                   
                   <div className="flex items-center space-x-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(trackingData.status)}`}>
+                      {trackingData.status.replace(/_/g, ' ').toUpperCase()}
+                    </span>
                     <motion.button
                       className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                       whileHover={{ scale: 1.05 }}
@@ -440,7 +383,7 @@ export default function TrackingSection() {
                         <div>
                           <span className="text-sm text-gray-500">Estimated Delivery</span>
                           <p className="font-semibold text-gray-900">
-                            {formatDate(trackingData.estimatedDelivery)}
+                            {trackingData.estimatedDelivery ? formatDate(trackingData.estimatedDelivery) : 'Not available'}
                           </p>
                         </div>
                         <div>
@@ -454,14 +397,20 @@ export default function TrackingSection() {
                         <p className="font-semibold text-gray-900">{trackingData.destination}</p>
                       </div>
 
+                      <div>
+                        <span className="text-sm text-gray-500">Sender</span>
+                        <p className="font-semibold text-gray-900">{trackingData.sender}</p>
+                        <p className="text-sm text-gray-600 mt-1">{trackingData.senderAddress}</p>
+                      </div>
+
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <span className="text-sm text-gray-500">Weight</span>
-                          <p className="font-semibold text-gray-900">{trackingData.weight}</p>
+                          <p className="font-semibold text-gray-900">{trackingData.weight || 'Not specified'}</p>
                         </div>
                         <div>
                           <span className="text-sm text-gray-500">Dimensions</span>
-                          <p className="font-semibold text-gray-900">{trackingData.dimensions}</p>
+                          <p className="font-semibold text-gray-900">{trackingData.dimensions || 'Not specified'}</p>
                         </div>
                       </div>
                     </div>
@@ -485,7 +434,7 @@ export default function TrackingSection() {
                                 transition={{ delay: index * 0.1 }}
                                 className="flex items-start space-x-4"
                               >
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center  shrink-0 z-10 ${
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 ${
                                   event.completed ? 'bg-fedex-purple text-white' : 'bg-gray-200 text-gray-500'
                                 }`}>
                                   <StatusIcon className="w-4 h-4" />
@@ -524,14 +473,21 @@ export default function TrackingSection() {
                               transition={{ delay: index * 0.05 }}
                               className="flex items-start space-x-4"
                             >
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center  shrink-0 z-10 ${
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 ${
                                 event.completed ? 'bg-fedex-purple text-white' : 'bg-gray-200 text-gray-500'
                               }`}>
                                 <StatusIcon className="w-4 h-4" />
                               </div>
                               <div className="flex-1 pb-6">
-                                <p className="font-semibold text-gray-900">{event.description}</p>
-                                <p className="text-sm text-gray-500 mt-1">{event.location}</p>
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <p className="font-semibold text-gray-900">{event.description}</p>
+                                    <p className="text-sm text-gray-500 mt-1">{event.location}</p>
+                                  </div>
+                                  <span className="text-sm text-gray-400 whitespace-nowrap">
+                                    {formatTime(event.timestamp)}
+                                  </span>
+                                </div>
                                 <p className="text-sm text-gray-400 mt-1">
                                   {formatDate(event.timestamp)}
                                 </p>
@@ -547,6 +503,28 @@ export default function TrackingSection() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Admin Actions Section (Optional) */}
+        <motion.div
+          className="mt-8 text-center"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+        >
+          <p className="text-gray-600 mb-4">Need to manage packages?</p>
+          <div className="flex gap-4 justify-center">
+            <motion.button
+              className="px-6 py-3 bg-fedex-orange text-white rounded-xl font-semibold hover:bg-orange-600 transition-colors flex items-center space-x-2"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => window.open('/admin/tracking', '_blank')}
+            >
+              <FiEdit className="w-4 h-4" />
+              <span>Manage Packages</span>
+            </motion.button>
+          </div>
+        </motion.div>
 
         {/* Features Grid */}
         <motion.div
