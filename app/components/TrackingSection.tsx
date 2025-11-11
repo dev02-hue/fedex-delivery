@@ -13,9 +13,19 @@ import {
   FiCopy,
   FiShare2,
   FiDownload,
-  FiEdit
+  FiEdit,
+  FiPackage,
+  FiNavigation
 } from 'react-icons/fi';
-import { getTrackingDetails } from '@/lib/tracking';
+import { 
+  getTrackingDetails, 
+  
+  updatePackageStatus,
+  
+  addTrackingEvent,
+  type TrackingPackage,
+  type TrackingEvent 
+} from '@/lib/tracking';
 
 // Fix CSS class
 const fixedGradient = 'bg-gradient-to-br';
@@ -24,9 +34,11 @@ export default function TrackingSection() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [trackingData, setTrackingData] = useState<any>(null);
+  const [packageJourney, setPackageJourney] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   // Sample tracking numbers for quick testing
   const sampleNumbers = ['FDX123456789', 'FDX987654321'];
@@ -50,6 +62,12 @@ export default function TrackingSection() {
         // Transform the data to match our component structure
         const transformedData = transformTrackingData(result.trackingDetails);
         setTrackingData(transformedData);
+        
+        // Also fetch package journey
+        // const journeyResult = await getPackageJourney(trackingNumber);
+        // if (journeyResult.locations) {
+        //   setPackageJourney(journeyResult.locations);
+        // }
       }
     } catch (err) {
       setError('Failed to fetch tracking information');
@@ -64,17 +82,20 @@ export default function TrackingSection() {
     const { package: pkg, events } = trackingDetails;
     
     return {
+      id: pkg.id,
       status: pkg.status,
       trackingNumber: pkg.tracking_number,
       service: pkg.service_type,
       estimatedDelivery: pkg.estimated_delivery,
       recipient: pkg.recipient_name,
-      destination: pkg.recipient_address,
+      destination: pkg.destination || pkg.recipient_address,
       sender: pkg.sender_name,
       senderAddress: pkg.sender_address,
+      currentLocation: pkg.current_location,
+      lastLocation: pkg.last_location,
       weight: pkg.weight,
       dimensions: pkg.dimensions,
-      timeline: events.map((event: any ) => ({
+      timeline: events.map((event: any) => ({
         id: event.id,
         status: event.status,
         description: event.description,
@@ -99,6 +120,75 @@ export default function TrackingSection() {
       navigator.clipboard.writeText(trackingData.trackingNumber);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleStatusUpdate = async (newStatus: TrackingPackage['status']) => {
+    if (!trackingData) return;
+    
+    setIsUpdatingStatus(true);
+    try {
+      const result = await updatePackageStatus(trackingData.trackingNumber, newStatus);
+      
+      if (result.error) {
+        setError(result.error);
+      } else {
+        // Refresh tracking data
+        const refreshResult = await getTrackingDetails(trackingData.trackingNumber);
+        if (refreshResult.trackingDetails) {
+          const transformedData = transformTrackingData(refreshResult.trackingDetails);
+          setTrackingData(transformedData);
+        }
+      }
+    } catch (err) {
+      setError('Failed to update package status');
+      console.error('Status update error:', err);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // const handleLocationUpdate = async (newLocation: string) => {
+  //   if (!trackingData) return;
+    
+  //   try {
+  //     const result = await updatePackageLocation(trackingData.trackingNumber, newLocation);
+      
+  //     if (result.error) {
+  //       setError(result.error);
+  //     } else {
+  //       // Refresh tracking data
+  //       const refreshResult = await getTrackingDetails(trackingData.trackingNumber);
+  //       if (refreshResult.trackingDetails) {
+  //         const transformedData = transformTrackingData(refreshResult.trackingDetails);
+  //         setTrackingData(transformedData);
+  //       }
+  //     }
+  //   } catch (err) {
+  //     setError('Failed to update package location');
+  //     console.error('Location update error:', err);
+  //   }
+  // };
+
+  const handleAddEvent = async (eventData: Omit<TrackingEvent, 'id' | 'package_id' | 'created_at'>) => {
+    if (!trackingData) return;
+    
+    try {
+      const result = await addTrackingEvent(trackingData.trackingNumber, eventData);
+      
+      if (result.error) {
+        setError(result.error);
+      } else {
+        // Refresh tracking data
+        const refreshResult = await getTrackingDetails(trackingData.trackingNumber);
+        if (refreshResult.trackingDetails) {
+          const transformedData = transformTrackingData(refreshResult.trackingDetails);
+          setTrackingData(transformedData);
+        }
+      }
+    } catch (err) {
+      setError('Failed to add tracking event');
+      console.error('Add event error:', err);
     }
   };
 
@@ -149,6 +239,14 @@ export default function TrackingSection() {
       return 'Time not available';
     }
   };
+
+  // Quick status update buttons (for demo/admin purposes)
+  const statusButtons = [
+    { status: 'picked_up' as const, label: 'Mark as Picked Up', color: 'bg-purple-500 hover:bg-purple-600' },
+    { status: 'in_transit' as const, label: 'Mark in Transit', color: 'bg-blue-500 hover:bg-blue-600' },
+    { status: 'out_for_delivery' as const, label: 'Out for Delivery', color: 'bg-orange-500 hover:bg-orange-600' },
+    { status: 'delivered' as const, label: 'Mark Delivered', color: 'bg-green-500 hover:bg-green-600' },
+  ];
 
   return (
     <section id="tracking" className={`py-20 ${fixedGradient} from-gray-50 to-blue-50 relative overflow-hidden`}>
@@ -272,7 +370,7 @@ export default function TrackingSection() {
                 exit={{ opacity: 0, height: 0 }}
                 className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center space-x-3"
               >
-                <FiAlertCircle className="w-5 h-5 text-red-500  shrink-0" />
+                <FiAlertCircle className="w-5 h-5 text-red-500 shrink-0" />
                 <span className="text-red-700 font-medium">{error}</span>
               </motion.div>
             )}
@@ -345,7 +443,7 @@ export default function TrackingSection() {
               {/* Tabs */}
               <div className="border-b border-gray-200">
                 <div className="flex space-x-8 px-6">
-                  {['details', 'timeline'].map((tab) => (
+                  {['details', 'timeline', 'journey'].map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
@@ -355,7 +453,8 @@ export default function TrackingSection() {
                           : 'border-transparent text-gray-500 hover:text-gray-700'
                       }`}
                     >
-                      {tab === 'details' ? 'Shipment Details' : 'Tracking Timeline'}
+                      {tab === 'details' ? 'Shipment Details' : 
+                       tab === 'timeline' ? 'Tracking Timeline' : 'Location Journey'}
                     </button>
                   ))}
                 </div>
@@ -392,9 +491,27 @@ export default function TrackingSection() {
                         </div>
                       </div>
 
+                      {/* Location Information */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-sm text-gray-500">Current Location</span>
+                          <div className="flex items-center space-x-2">
+                            <FiMapPin className="w-4 h-4 text-fedex-purple" />
+                            <p className="font-semibold text-gray-900">{trackingData.currentLocation || 'In transit'}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500">Last Location</span>
+                          <p className="font-semibold text-gray-900">{trackingData.lastLocation || 'Not available'}</p>
+                        </div>
+                      </div>
+
                       <div>
                         <span className="text-sm text-gray-500">Destination</span>
-                        <p className="font-semibold text-gray-900">{trackingData.destination}</p>
+                        <div className="flex items-center space-x-2">
+                          <FiNavigation className="w-4 h-4 text-fedex-orange" />
+                          <p className="font-semibold text-gray-900">{trackingData.destination}</p>
+                        </div>
                       </div>
 
                       <div>
@@ -415,9 +532,9 @@ export default function TrackingSection() {
                       </div>
                     </div>
 
-                    {/* Delivery Progress */}
-                    <div>
-                      <h4 className="text-lg font-bold text-gray-900 mb-6">Delivery Progress</h4>
+                    {/* Delivery Progress & Actions */}
+                    <div className="space-y-6">
+                      <h4 className="text-lg font-bold text-gray-900">Delivery Progress</h4>
                       <div className="relative">
                         {/* Progress Line */}
                         <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
@@ -451,9 +568,32 @@ export default function TrackingSection() {
                           })}
                         </div>
                       </div>
+
+                      {/* Quick Actions (for demo/admin) */}
+                      <div className="pt-6 border-t border-gray-200">
+                        <h5 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h5>
+                        <div className="flex flex-wrap gap-2">
+                          {statusButtons.map((button) => (
+                            <motion.button
+                              key={button.status}
+                              onClick={() => handleStatusUpdate(button.status)}
+                              disabled={isUpdatingStatus || trackingData.status === button.status}
+                              className={`px-3 py-2 rounded-lg text-xs font-semibold text-white transition-all ${
+                                trackingData.status === button.status 
+                                  ? 'bg-gray-400 cursor-not-allowed' 
+                                  : button.color
+                              }`}
+                              whileHover={trackingData.status !== button.status ? { scale: 1.05 } : {}}
+                              whileTap={trackingData.status !== button.status ? { scale: 0.95 } : {}}
+                            >
+                              {button.label}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                ) : (
+                ) : activeTab === 'timeline' ? (
                   /* Timeline Tab */
                   <div className="max-w-2xl">
                     <h4 className="text-lg font-bold text-gray-900 mb-6">Tracking Timeline</h4>
@@ -498,33 +638,62 @@ export default function TrackingSection() {
                       </div>
                     </div>
                   </div>
+                ) : (
+                  /* Journey Tab */
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900 mb-6">Location Journey</h4>
+                    {packageJourney.length > 0 ? (
+                      <div className="space-y-4">
+                        {packageJourney.map((location, index) => (
+                          <motion.div
+                            key={index}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.1 }}
+                            className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg"
+                          >
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                              index === 0 
+                                ? 'bg-fedex-orange text-white' 
+                                : index === packageJourney.length - 1
+                                ? 'bg-green-500 text-white'
+                                : 'bg-fedex-purple text-white'
+                            }`}>
+                              {index === 0 ? (
+                                <FiPackage className="w-4 h-4" />
+                              ) : index === packageJourney.length - 1 ? (
+                                <FiCheck className="w-4 h-4" />
+                              ) : (
+                                <FiMapPin className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">{location}</p>
+                              <p className="text-sm text-gray-500">
+                                {index === 0 
+                                  ? 'Origin' 
+                                  : index === packageJourney.length - 1
+                                  ? 'Destination'
+                                  : `Stop ${index}`}
+                              </p>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <FiMapPin className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p>No location journey data available</p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Admin Actions Section (Optional) */}
-        <motion.div
-          className="mt-8 text-center"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-        >
-          <p className="text-gray-600 mb-4">Need to manage packages?</p>
-          <div className="flex gap-4 justify-center">
-            <motion.button
-              className="px-6 py-3 bg-fedex-orange text-white rounded-xl font-semibold hover:bg-orange-600 transition-colors flex items-center space-x-2"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => window.open('/admin/tracking', '_blank')}
-            >
-              <FiEdit className="w-4 h-4" />
-              <span>Manage Packages</span>
-            </motion.button>
-          </div>
-        </motion.div>
+          
 
         {/* Features Grid */}
         <motion.div
@@ -542,8 +711,8 @@ export default function TrackingSection() {
             },
             {
               icon: FiMapPin,
-              title: 'Precise Location',
-              description: 'Know exactly where your package is with detailed location tracking'
+              title: 'Precise Location Tracking',
+              description: 'Track current and previous locations with detailed journey history'
             },
             {
               icon: FiAlertCircle,

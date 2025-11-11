@@ -1,9 +1,13 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // lib/tracking.ts
 "use server";
 
 import { supabase } from "./supabaseClient";
 
 export interface TrackingPackage {
+  current_location: any;
+  destination: any;
+  last_location: any;
   id: string;
   tracking_number: string;
   status: 'pending' | 'picked_up' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception';
@@ -45,6 +49,19 @@ export interface CreatePackageData {
   dimensions?: string;
   estimated_delivery?: string;
   initial_status?: TrackingPackage['status'];
+}
+
+export interface UpdatePackageData {
+  tracking_number?: string;
+  status?: 'pending' | 'picked_up' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception';
+  service_type?: string;
+  recipient_name?: string;
+  recipient_address?: string;
+  sender_name?: string;
+  sender_address?: string;
+  weight?: string;
+  dimensions?: string;
+  estimated_delivery?: string;
 }
 
 // Get tracking details by tracking number
@@ -160,23 +177,45 @@ export async function createPackage(packageData: CreatePackageData): Promise<{
   }
 }
 
-// Update package
+// Update package - can update all fields except id
 export async function updatePackage(
   trackingNumber: string, 
-  updates: Partial<TrackingPackage>
+  updates: UpdatePackageData
 ): Promise<{
   package?: TrackingPackage;
   error?: string;
 }> {
   try {
-    console.log(`[updatePackage] Updating package: ${trackingNumber}`);
+    console.log(`[updatePackage] Updating package: ${trackingNumber}`, updates);
+
+    // Check if tracking number is being updated and if it already exists
+    if (updates.tracking_number && updates.tracking_number !== trackingNumber) {
+      const { data: existingPackage } = await supabase
+        .from("tracking_packages")
+        .select("tracking_number")
+        .eq("tracking_number", updates.tracking_number)
+        .single();
+
+      if (existingPackage) {
+        return { error: "Tracking number already exists" };
+      }
+    }
+
+    const updateData: any = {
+      ...updates,
+      updated_at: new Date().toISOString()
+    };
+
+    // Remove any undefined values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
 
     const { data, error } = await supabase
       .from("tracking_packages")
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq("tracking_number", trackingNumber)
       .select()
       .single();
@@ -190,6 +229,83 @@ export async function updatePackage(
     return { package: data as TrackingPackage };
   } catch (err) {
     console.error("[updatePackage] Unexpected error:", err);
+    return { error: "Unexpected error occurred" };
+  }
+}
+
+// Update package status and add tracking event
+export async function updatePackageStatus(
+  trackingNumber: string,
+  status: TrackingPackage['status'],
+  description?: string,
+  location?: string
+): Promise<{
+  package?: TrackingPackage;
+  event?: TrackingEvent;
+  error?: string;
+}> {
+  try {
+    console.log(`[updatePackageStatus] Updating status for: ${trackingNumber} to ${status}`);
+
+    // First get the package
+    const { data: packageData, error: packageError } = await supabase
+      .from("tracking_packages")
+      .select("id, status")
+      .eq("tracking_number", trackingNumber)
+      .single();
+
+    if (packageError || !packageData) {
+      return { error: "Package not found" };
+    }
+
+    // Update package status
+    const { data: updatedPackage, error: updateError } = await supabase
+      .from("tracking_packages")
+      .update({
+        status: status,
+        updated_at: new Date().toISOString()
+      })
+      .eq("tracking_number", trackingNumber)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("[updatePackageStatus] Error updating package status:", updateError);
+      return { error: "Failed to update package status" };
+    }
+
+    // Add tracking event
+    const eventDescription = description || getStatusDescription(status);
+    const eventLocation = location || getDefaultLocation(status, packageData);
+
+    const { data: eventData, error: eventError } = await supabase
+      .from("tracking_events")
+      .insert([{
+        package_id: packageData.id,
+        status: status,
+        description: eventDescription,
+        location: eventLocation,
+        event_timestamp: new Date().toISOString(),
+      }])
+      .select()
+      .single();
+
+    if (eventError) {
+      console.error("[updatePackageStatus] Error adding tracking event:", eventError);
+      // Still return success for package update even if event creation fails
+      return { 
+        package: updatedPackage as TrackingPackage,
+        error: "Package updated but failed to create tracking event" 
+      };
+    }
+
+    console.log("[updatePackageStatus] Package status updated successfully");
+    return { 
+      package: updatedPackage as TrackingPackage,
+      event: eventData as TrackingEvent
+    };
+  } catch (err) {
+    console.error("[updatePackageStatus] Unexpected error:", err);
     return { error: "Unexpected error occurred" };
   }
 }
@@ -234,7 +350,7 @@ export async function addTrackingEvent(
     // First get the package ID and current status
     const { data: packageData, error: packageError } = await supabase
       .from("tracking_packages")
-      .select("id, status") // FIXED: Added status to select
+      .select("id, status")
       .eq("tracking_number", trackingNumber)
       .single();
 
@@ -333,4 +449,17 @@ function getStatusDescription(status: TrackingPackage['status']): string {
     exception: 'Delivery exception'
   };
   return descriptions[status];
+}
+
+// Helper function to get default location based on status
+function getDefaultLocation(status: TrackingPackage['status'], packageData: any): string {
+  const locations = {
+    pending: packageData.sender_address?.split(',')[0] || 'Origin Facility',
+    picked_up: packageData.sender_address?.split(',')[0] || 'Pickup Location',
+    in_transit: 'Distribution Center',
+    out_for_delivery: packageData.recipient_address?.split(',')[0] || 'Local Facility',
+    delivered: packageData.recipient_address?.split(',')[0] || 'Destination',
+    exception: 'Processing Facility'
+  };
+  return locations[status];
 }
